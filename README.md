@@ -1,5 +1,5 @@
 # Paper RCON Link
 
-Static control page for a Paper server reached through a Playit TCP tunnel.
+The page signs in with Google and loads that account's saved server presets. Send uses a Netlify function, which opens the Playit TCP tunnel and speaks RCON.
 
-Enter the Playit address in the IP box, the RCON port Playit shows, and the RCON password. Use Save server preset to keep addresses in this browser.
+Set `GOOGLE_CLIENT_ID` in the Netlify site environment, then redeploy. The client ID is a Google web client whose authorized origin is the Netlify site address.
