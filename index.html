@@ -50,7 +50,7 @@
     <section>
       <h2>YOUR ACCOUNT</h2>
       <div class="grid">
-        <div><label for="account">Name</label><input id="account" placeholder="captain" autocomplete="username" /></div>
+        <div><label for="account">Username</label><input id="account" placeholder="Username" autocomplete="username" /></div>
         <div><label for="accountPassword">Password</label><input id="accountPassword" type="password" placeholder="at least 6 characters" autocomplete="current-password" /></div>
       </div>
       <div class="row">
@@ -61,7 +61,7 @@
       <p class="note">The same name and password load your servers on any browser or network.</p>
       <h2 style="margin-top:18px">SERVER LINK</h2>
       <label for="name">Preset name</label>
-      <input id="name" placeholder="Home Paper" />
+      <input id="name" placeholder="Server Name" />
       <div class="grid">
         <div><label for="ip">IP</label><input id="ip" placeholder="name.gl.at.ply.gg" autocomplete="off" /></div>
         <div><label for="port">RCON port</label><input id="port" value="25575" inputmode="numeric" /></div>
@@ -79,7 +79,12 @@
         <button id="send" type="button">Send</button>
         <button type="button" data-cmd="list">list</button>
         <button type="button" data-cmd="save-all">save-all</button>
-        <button type="button" data-cmd="time query daytime">time</button>
+        <button type="button" data-cmd="time set day">day</button>
+        <button type="button" data-cmd="weather clear">clear weather</button>
+        <button type="button" data-cmd="seed">seed</button>
+        <button type="button" data-cmd="whitelist list">whitelist</button>
+        <button type="button" data-cmd="banlist">ban list</button>
+        <button type="button" data-cmd="tps">tps</button>
       </div>
       <p id="status" class="note"></p>
       <div id="log" class="log">No commands yet.</div>
