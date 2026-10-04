@@ -156,7 +156,7 @@ async function setupGoogle() {
   const res = await fetch("/.netlify/functions/config");
   const data = await res.json();
   if (!data.googleClientId) {
-    statusEl.textContent = "Add GOOGLE_CLIENT_ID in Netlify, then redeploy, so this page can load your Google presets.";
+    statusEl.textContent = "The sign-in button appears on this page after Google is allowed to use this site. In Netlify, add the variable GOOGLE_CLIENT_ID, then redeploy.";
     return;
   }
   const script = document.createElement("script");
