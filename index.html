@@ -44,12 +44,22 @@
       <div class="tag">LINK // PLAYIT TCP // PAPER</div>
       <h1>RCON TERMINAL</h1>
     </div>
-    <div class="tag" id="who">GOOGLE: SIGNED OUT</div>
+    <div class="tag" id="who">ACCOUNT: SIGNED OUT</div>
   </header>
   <div class="layout">
     <section>
-      <h2>SERVER LINK</h2>
-      <div class="row" id="googleSlot"></div>
+      <h2>YOUR ACCOUNT</h2>
+      <div class="grid">
+        <div><label for="account">Name</label><input id="account" placeholder="captain" autocomplete="username" /></div>
+        <div><label for="accountPassword">Password</label><input id="accountPassword" type="password" placeholder="at least 6 characters" autocomplete="current-password" /></div>
+      </div>
+      <div class="row">
+        <button id="login" type="button">Sign in</button>
+        <button id="register" type="button">Create account</button>
+        <button id="logout" class="warn" type="button">Sign out</button>
+      </div>
+      <p class="note">The same name and password load your servers on any browser or network.</p>
+      <h2 style="margin-top:18px">SERVER LINK</h2>
       <label for="name">Preset name</label>
       <input id="name" placeholder="Home Paper" />
       <div class="grid">
@@ -58,7 +68,7 @@
       </div>
       <label for="password">RCON password</label>
       <input id="password" type="password" placeholder="From server.properties" />
-      <label><input id="savePassword" type="checkbox" style="width:auto" /> Save password with this preset on my Google account</label>
+      <label><input id="savePassword" type="checkbox" style="width:auto" /> Save RCON password with this preset</label>
       <div class="row">
         <button id="save" type="button">Save server preset</button>
         <button id="clear" class="warn" type="button">Clear fields</button>
@@ -75,16 +85,19 @@
       <div id="log" class="log">No commands yet.</div>
     </section>
     <section>
-      <h2>GOOGLE PRESETS</h2>
+      <h2>SAVED SERVERS</h2>
       <div id="presets"></div>
-      <p class="note">Sign in with Google and the saved servers for that account load here. Send opens the Playit TCP tunnel from Netlify, then talks to Paper RCON.</p>
+      <p class="note">Servers are saved to the signed-in account, not this browser. Sign in with the same name and password anywhere to get them back.</p>
     </section>
   </div>
 </main>
 <script>
-let googleToken = "";
+let token = localStorage.getItem("paper-rcon-token") || "";
+let accountName = localStorage.getItem("paper-rcon-name") || "";
 let presets = [];
 const fields = {
+  account: document.getElementById("account"),
+  accountPassword: document.getElementById("accountPassword"),
   name: document.getElementById("name"),
   ip: document.getElementById("ip"),
   port: document.getElementById("port"),
@@ -96,9 +109,12 @@ const statusEl = document.getElementById("status");
 const logEl = document.getElementById("log");
 const history = [];
 
+function setWho() {
+  document.getElementById("who").textContent = accountName ? "ACCOUNT: " + accountName : "ACCOUNT: SIGNED OUT";
+}
 function drawPresets() {
   const box = document.getElementById("presets");
-  box.innerHTML = presets.length ? "" : '<div class="note">No presets on this Google account yet.</div>';
+  box.innerHTML = presets.length ? "" : '<div class="note">No saved servers for this account yet.</div>';
   for (const item of presets) {
     const row = document.createElement("div");
     row.className = "preset";
@@ -128,45 +144,69 @@ function drawPresets() {
   }
 }
 async function savePresets() {
-  if (!googleToken) { statusEl.textContent = "Sign in with Google first."; return; }
+  if (!token) { statusEl.textContent = "Sign in first."; return; }
   const res = await fetch("/.netlify/functions/presets", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + googleToken },
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
     body: JSON.stringify({ presets })
   });
   const data = await res.json();
   if (!res.ok) { statusEl.textContent = data.message || "Could not save"; return; }
   presets = data.presets || presets;
   drawPresets();
-  statusEl.textContent = "Saved to your Google account.";
+  statusEl.textContent = "Saved to " + accountName + ".";
 }
 async function loadPresets() {
-  const res = await fetch("/.netlify/functions/presets", { headers: { Authorization: "Bearer " + googleToken } });
+  if (!token) { presets = []; setWho(); drawPresets(); return; }
+  const res = await fetch("/.netlify/functions/presets", { headers: { Authorization: "Bearer " + token } });
   const data = await res.json();
-  if (!res.ok) { statusEl.textContent = data.message || "Could not load presets"; return; }
-  presets = data.presets || [];
-  document.getElementById("who").textContent = "GOOGLE: " + (data.email || "SIGNED IN");
-  drawPresets();
-}
-window.onGoogle = async (response) => {
-  googleToken = response.credential;
-  await loadPresets();
-};
-async function setupGoogle() {
-  const res = await fetch("/.netlify/functions/config");
-  const data = await res.json();
-  if (!data.googleClientId) {
-    statusEl.textContent = "The sign-in button appears on this page after Google is allowed to use this site. In Netlify, add the variable GOOGLE_CLIENT_ID, then redeploy.";
+  if (!res.ok) {
+    token = "";
+    accountName = "";
+    localStorage.removeItem("paper-rcon-token");
+    localStorage.removeItem("paper-rcon-name");
+    statusEl.textContent = data.message || "Sign in again.";
+    setWho();
+    drawPresets();
     return;
   }
-  const script = document.createElement("script");
-  script.src = "https://accounts.google.com/gsi/client";
-  script.onload = () => {
-    google.accounts.id.initialize({ client_id: data.googleClientId, callback: window.onGoogle });
-    google.accounts.id.renderButton(document.getElementById("googleSlot"), { theme: "filled_black", size: "large" });
-  };
-  document.body.append(script);
+  accountName = data.name || accountName;
+  presets = data.presets || [];
+  setWho();
+  drawPresets();
 }
+async function auth(action) {
+  const res = await fetch("/.netlify/functions/account", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action,
+      name: fields.account.value.trim(),
+      password: fields.accountPassword.value
+    })
+  });
+  const data = await res.json();
+  if (!res.ok) { statusEl.textContent = data.message || "Could not sign in"; return; }
+  token = data.token;
+  accountName = data.name;
+  localStorage.setItem("paper-rcon-token", token);
+  localStorage.setItem("paper-rcon-name", accountName);
+  fields.accountPassword.value = "";
+  statusEl.textContent = action === "register" ? "Account created." : "Signed in.";
+  await loadPresets();
+}
+document.getElementById("login").onclick = () => auth("login");
+document.getElementById("register").onclick = () => auth("register");
+document.getElementById("logout").onclick = () => {
+  token = "";
+  accountName = "";
+  presets = [];
+  localStorage.removeItem("paper-rcon-token");
+  localStorage.removeItem("paper-rcon-name");
+  setWho();
+  drawPresets();
+  statusEl.textContent = "Signed out on this browser.";
+};
 document.getElementById("save").onclick = async () => {
   const ip = fields.ip.value.trim();
   const port = fields.port.value.trim();
@@ -223,8 +263,9 @@ async function send(text) {
 document.getElementById("send").onclick = () => send();
 fields.command.addEventListener("keydown", (event) => { if (event.key === "Enter") send(); });
 for (const button of document.querySelectorAll("[data-cmd]")) button.onclick = () => send(button.dataset.cmd);
+setWho();
 drawPresets();
-setupGoogle();
+loadPresets();
 </script>
 </body>
 </html>

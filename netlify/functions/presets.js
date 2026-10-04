@@ -8,33 +8,22 @@ function json(statusCode, payload) {
   };
 }
 
-async function googleUser(event) {
-  const clientId = process.env.GOOGLE_CLIENT_ID || "";
-  if (!clientId) {
-    const error = new Error("Google sign-in is not set up yet");
-    error.statusCode = 503;
-    throw error;
-  }
+async function accountName(event) {
   const header = event.headers.authorization || event.headers.Authorization || "";
   const token = header.replace(/^Bearer\s+/i, "");
   if (!token) {
-    const error = new Error("Sign in with Google first");
+    const error = new Error("Sign in first.");
     error.statusCode = 401;
     throw error;
   }
-  const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`);
-  if (!res.ok) {
-    const error = new Error("Google sign-in expired. Sign in again.");
+  const sessions = getStore("sessions");
+  const session = await sessions.get(token, { type: "json" });
+  if (!session || session.expires < Date.now()) {
+    const error = new Error("Sign in again.");
     error.statusCode = 401;
     throw error;
   }
-  const info = await res.json();
-  if (info.aud !== clientId || info.email_verified !== "true") {
-    const error = new Error("That Google account is not allowed");
-    error.statusCode = 403;
-    throw error;
-  }
-  return { id: info.sub, email: info.email, name: info.name || info.email };
+  return session.name;
 }
 
 function cleanPresets(value) {
@@ -50,17 +39,17 @@ function cleanPresets(value) {
 
 exports.handler = async function handler(event) {
   try {
-    const user = await googleUser(event);
+    const name = await accountName(event);
     const store = getStore("server-presets");
     if (event.httpMethod === "GET") {
-      const saved = (await store.get(user.id, { type: "json" })) || { presets: [] };
-      return json(200, { email: user.email, name: user.name, presets: saved.presets || [] });
+      const saved = (await store.get(name, { type: "json" })) || { presets: [] };
+      return json(200, { name, presets: saved.presets || [] });
     }
     if (event.httpMethod === "POST") {
       const body = JSON.parse(event.body || "{}");
       const presets = cleanPresets(body.presets);
-      await store.setJSON(user.id, { email: user.email, presets });
-      return json(200, { email: user.email, presets });
+      await store.setJSON(name, { presets });
+      return json(200, { name, presets });
     }
     return json(405, { message: "Use GET or POST" });
   } catch (err) {

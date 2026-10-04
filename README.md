@@ -1,5 +1,5 @@
 # Paper RCON Link
 
-The page signs in with Google and loads that account's saved server presets. Send uses a Netlify function, which opens the Playit TCP tunnel and speaks RCON.
+Each person makes a name and password on the page. Saved servers stay with that account, so they load on any browser or IP after signing in.
 
-Set `GOOGLE_CLIENT_ID` in the Netlify site environment, then redeploy. The client ID is a Google web client whose authorized origin is the Netlify site address.
+Send uses a Netlify function to open the Playit TCP tunnel and talk to Paper RCON.
