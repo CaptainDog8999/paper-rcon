@@ -22,85 +22,115 @@ function packet(id, type, payload) {
   return frame;
 }
 
-function readOne(socket, timeoutMs) {
+function varInt(value) {
+  const bytes = [];
+  let n = value >>> 0;
+  do {
+    let b = n & 0x7f;
+    n >>>= 7;
+    if (n) b |= 0x80;
+    bytes.push(b);
+  } while (n);
+  return Buffer.from(bytes);
+}
+
+function minecraftPacket(id, data) {
+  const body = Buffer.concat([varInt(id), data]);
+  return Buffer.concat([varInt(body.length), body]);
+}
+
+function withSocket(host, port, run) {
   return new Promise((resolve, reject) => {
-    let buf = Buffer.alloc(0);
-    const timer = setTimeout(() => finish(new Error("Playit connected, but Paper sent no RCON reply. Use a TCP tunnel to 127.0.0.1 and the RCON port, turn proxy protocol off, and enter the public port Playit shows.")), null);
-    function cleanup() {
-      clearTimeout(timer);
-      socket.off("data", onData);
-      socket.off("error", onError);
-      socket.off("end", onEnd);
-    }
-    function finish(err, value) {
-      cleanup();
-      if (err) reject(err);
-      else resolve(value);
-    }
-    function take() {
-      if (buf.length < 4) return;
-      const length = buf.readInt32LE(0);
-      if (length < 10 || length > 1024 * 1024) {
-        finish(new Error("Bad RCON packet"));
-        return;
-      }
-      if (buf.length < 4 + length) return;
-      const body = buf.subarray(4, 4 + length);
-      buf = buf.subarray(4 + length);
-      finish(null, {
-        id: body.readInt32LE(0),
-        type: body.readInt32LE(4),
-        payload: body.subarray(8, body.length - 2).toString("utf8"),
-        rest: buf,
-      });
-    }
-    function onData(chunk) {
-      buf = Buffer.concat([buf, chunk]);
-      take();
-    }
-    function onError(err) {
-      finish(err);
-    }
-    function onEnd() {
-      finish(new Error("Paper closed the RCON connection. Check the password, enable-rcon=true, and that the Playit local port is the RCON port."));
-    }
-    socket.on("data", onData);
-    socket.on("error", onError);
-    socket.on("end", onEnd);
+    const socket = net.connect({ host, port });
+    socket.setNoDelay(true);
+    socket.setTimeout(10000);
+    const fail = (err) => {
+      socket.destroy();
+      reject(err);
+    };
+    socket.once("timeout", () => fail(new Error("Timed out reaching the Playit address")));
+    socket.once("error", fail);
+    socket.once("connect", () => run(socket).then(resolve).catch(fail));
   });
 }
 
-function rconCommand(host, port, password, command) {
-  return new Promise((resolve, reject) => {
-    const socket = net.connect({ host, port });
-    socket.setTimeout(8000);
-    socket.once("timeout", () => {
-      socket.destroy();
-      reject(new Error("Timed out reaching the Playit address"));
+function readAvailable(socket, timeoutMs) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    const timer = setTimeout(done, timeoutMs);
+    function done() {
+      clearTimeout(timer);
+      socket.off("data", onData);
+      socket.off("end", done);
+      resolve(Buffer.concat(chunks));
+    }
+    function onData(chunk) {
+      chunks.push(chunk);
+    }
+    socket.on("data", onData);
+    socket.on("end", done);
+  });
+}
+
+function decodePackets(buf) {
+  const packets = [];
+  let offset = 0;
+  while (buf.length - offset >= 4) {
+    const length = buf.readInt32LE(offset);
+    if (length < 10 || length > 1024 * 1024 || buf.length - offset < 4 + length) break;
+    const body = buf.subarray(offset + 4, offset + 4 + length);
+    packets.push({
+      id: body.readInt32LE(0),
+      type: body.readInt32LE(4),
+      payload: body.subarray(8, body.length - 2).toString("utf8"),
     });
-    socket.once("error", reject);
-    socket.once("connect", async () => {
-      try {
-        socket.write(packet(1, 3, password));
-        const auth = await readOne(socket, 4000);
-        if (auth.id === -1) {
-          socket.end();
-          reject(new Error("RCON login failed. Check the password."));
-          return;
-        }
-        socket.write(packet(2, 2, command));
-        const reply = await readOne(socket, 4000);
-        socket.end();
-        if (reply.id === -1) {
-          reject(new Error("RCON login failed. Check the password."));
-          return;
-        }
-        resolve(reply.payload.trim() || "(no output)");
-      } catch (err) {
-        socket.destroy();
-        reject(err);
+    offset += 4 + length;
+  }
+  return packets;
+}
+
+async function looksLikeMinecraft(host, port) {
+  try {
+    return await withSocket(host, port, async (socket) => {
+      const hostBuf = Buffer.from(host);
+      const handshake = Buffer.concat([
+        varInt(767),
+        varInt(hostBuf.length),
+        hostBuf,
+        Buffer.from([(port >> 8) & 0xff, port & 0xff]),
+        varInt(1),
+      ]);
+      socket.write(minecraftPacket(0, handshake));
+      socket.write(minecraftPacket(0, Buffer.alloc(0)));
+      const bytes = await readAvailable(socket, 2500);
+      socket.end();
+      return bytes.length > 2;
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function rconCommand(host, port, password, command) {
+  return withSocket(host, port, async (socket) => {
+    socket.write(packet(1, 3, password));
+    let bytes = await readAvailable(socket, 5000);
+    let packets = decodePackets(bytes);
+    if (!packets.length) {
+      const gamePort = await looksLikeMinecraft(host, port);
+      if (gamePort) {
+        throw new Error("That Playit port is the game join port, not RCON. Make a separate TCP tunnel to the RCON port and use the new public port.");
       }
-    });
+      throw new Error("Playit stayed open, but Paper sent no RCON bytes. The local port on that tunnel has to be the rcon.port from server.properties.");
+    }
+    if (packets.some((item) => item.id === -1)) {
+      throw new Error("RCON login failed. The password does not match rcon.password.");
+    }
+    socket.write(packet(2, 2, command));
+    bytes = Buffer.concat([bytes, await readAvailable(socket, 5000)]);
+    packets = decodePackets(bytes).filter((item) => item.id === 2);
+    socket.end();
+    return packets.map((item) => item.payload).join("").trim() || "(no output)";
   });
 }
 
@@ -112,8 +142,13 @@ exports.handler = async function handler(event) {
   } catch {
     return json(400, { message: "Bad request" });
   }
-  const host = String(body.ip || "").trim().replace(/^https?:\/\//, "").split("/")[0];
-  const port = Number(body.port);
+  let host = String(body.ip || "").trim().replace(/^https?:\/\//, "").split("/")[0];
+  let port = Number(body.port);
+  if (host.includes(":")) {
+    const split = host.split(":");
+    host = split[0];
+    if (!port) port = Number(split[1]);
+  }
   const password = String(body.password || "");
   const command = String(body.command || "").trim();
   if (!ALLOWED_HOST.test(host)) {
