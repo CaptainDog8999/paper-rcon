@@ -22,49 +22,47 @@ function packet(id, type, payload) {
   return frame;
 }
 
-function readPackets(socket, timeoutMs) {
+function readOne(socket, timeoutMs) {
   return new Promise((resolve, reject) => {
     let buf = Buffer.alloc(0);
-    const packets = [];
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve(packets);
-    }, timeoutMs);
+    const timer = setTimeout(() => finish(new Error("RCON timed out waiting for Paper")), null);
     function cleanup() {
       clearTimeout(timer);
       socket.off("data", onData);
       socket.off("error", onError);
       socket.off("end", onEnd);
     }
+    function finish(err, value) {
+      cleanup();
+      if (err) reject(err);
+      else resolve(value);
+    }
     function take() {
-      while (buf.length >= 4) {
-        const length = buf.readInt32LE(0);
-        if (length < 10 || length > 1024 * 1024) {
-          cleanup();
-          reject(new Error("Bad RCON packet"));
-          return;
-        }
-        if (buf.length < 4 + length) return;
-        const body = buf.subarray(4, 4 + length);
-        packets.push({
-          id: body.readInt32LE(0),
-          type: body.readInt32LE(4),
-          payload: body.subarray(8, body.length - 2).toString("utf8"),
-        });
-        buf = buf.subarray(4 + length);
+      if (buf.length < 4) return;
+      const length = buf.readInt32LE(0);
+      if (length < 10 || length > 1024 * 1024) {
+        finish(new Error("Bad RCON packet"));
+        return;
       }
+      if (buf.length < 4 + length) return;
+      const body = buf.subarray(4, 4 + length);
+      buf = buf.subarray(4 + length);
+      finish(null, {
+        id: body.readInt32LE(0),
+        type: body.readInt32LE(4),
+        payload: body.subarray(8, body.length - 2).toString("utf8"),
+        rest: buf,
+      });
     }
     function onData(chunk) {
       buf = Buffer.concat([buf, chunk]);
       take();
     }
     function onError(err) {
-      cleanup();
-      reject(err);
+      finish(err);
     }
     function onEnd() {
-      cleanup();
-      resolve(packets);
+      finish(new Error("Paper closed RCON. Check the password and that enable-rcon=true."));
     }
     socket.on("data", onData);
     socket.on("error", onError);
@@ -84,31 +82,26 @@ function rconCommand(host, port, password, command) {
     socket.once("connect", async () => {
       try {
         socket.write(packet(1, 3, password));
-        await wait(120);
-        socket.write(packet(2, 2, command));
-        socket.write(packet(3, 0, ""));
-        const packets = await readPackets(socket, 2500);
-        socket.end();
-        if (packets.some((item) => item.id === -1)) {
+        const auth = await readOne(socket, 4000);
+        if (auth.id === -1) {
+          socket.end();
           reject(new Error("RCON login failed. Check the password."));
           return;
         }
-        const output = packets
-          .filter((item) => item.id === 2)
-          .map((item) => item.payload)
-          .join("")
-          .trim();
-        resolve(output || "(no output)");
+        socket.write(packet(2, 2, command));
+        const reply = await readOne(socket, 4000);
+        socket.end();
+        if (reply.id === -1) {
+          reject(new Error("RCON login failed. Check the password."));
+          return;
+        }
+        resolve(reply.payload.trim() || "(no output)");
       } catch (err) {
         socket.destroy();
         reject(err);
       }
     });
   });
-}
-
-function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 exports.handler = async function handler(event) {
