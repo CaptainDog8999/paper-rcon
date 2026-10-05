@@ -44,7 +44,7 @@
       <div class="tag">LINK // PLAYIT TCP // PAPER</div>
       <h1>RCON TERMINAL</h1>
     </div>
-    <div class="tag" id="who">ACCOUNT VERSION 2</div>
+    <div class="tag" id="who">ACCOUNT: SIGNED OUT</div>
   </header>
   <div class="layout">
     <section>
@@ -190,8 +190,13 @@ async function auth(action) {
       password: fields.accountPassword.value
     })
   });
-  const data = await res.json();
-  if (!res.ok) { statusEl.textContent = data.message || "Could not sign in"; return; }
+  const raw = await res.text();
+  let data = {};
+  try { data = JSON.parse(raw); } catch {}
+  if (!res.ok) {
+    statusEl.textContent = data.message || data.errorMessage || raw.slice(0, 180) || "Could not sign in";
+    return;
+  }
   token = data.token;
   accountName = data.name;
   localStorage.setItem("paper-rcon-token", token);

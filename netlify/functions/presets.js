@@ -1,5 +1,3 @@
-const { getStore } = require("@netlify/blobs");
-
 function json(statusCode, payload) {
   return {
     statusCode,
@@ -8,22 +6,38 @@ function json(statusCode, payload) {
   };
 }
 
-async function accountName(event) {
-  const header = event.headers.authorization || event.headers.Authorization || "";
-  const token = header.replace(/^Bearer\s+/i, "");
-  if (!token) {
-    const error = new Error("Sign in first.");
-    error.statusCode = 401;
+function blobContext() {
+  const raw = process.env.NETLIFY_BLOBS_CONTEXT || "";
+  if (!raw) {
+    const error = new Error("Account storage is not ready on this deploy. Trigger a new Netlify deploy.");
+    error.statusCode = 503;
     throw error;
   }
-  const sessions = getStore("sessions");
-  const session = await sessions.get(token, { type: "json" });
-  if (!session || session.expires < Date.now()) {
-    const error = new Error("Sign in again.");
-    error.statusCode = 401;
-    throw error;
-  }
-  return session.name;
+  return JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+}
+
+function blobUrl(store, key) {
+  const ctx = blobContext();
+  const url = new URL(`/${ctx.siteID}/${encodeURIComponent(store)}/${encodeURIComponent(key)}`, ctx.apiURL);
+  return { url, token: ctx.token };
+}
+
+async function blobGet(store, key) {
+  const { url, token } = blobUrl(store, key);
+  const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Could not read saved servers (${res.status})`);
+  return res.json();
+}
+
+async function blobSet(store, key, value) {
+  const { url, token } = blobUrl(store, key);
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify(value),
+  });
+  if (!res.ok) throw new Error(`Could not save servers (${res.status})`);
 }
 
 function cleanPresets(value) {
@@ -39,17 +53,19 @@ function cleanPresets(value) {
 
 exports.handler = async function handler(event) {
   try {
-    const name = await accountName(event);
-    const store = getStore("server-presets");
+    const header = event.headers.authorization || event.headers.Authorization || "";
+    const token = header.replace(/^Bearer\s+/i, "");
+    const session = token ? await blobGet("sessions", token) : null;
+    if (!session || session.expires < Date.now()) return json(401, { message: "Sign in again." });
     if (event.httpMethod === "GET") {
-      const saved = (await store.get(name, { type: "json" })) || { presets: [] };
-      return json(200, { name, presets: saved.presets || [] });
+      const saved = (await blobGet("server-presets", session.name)) || { presets: [] };
+      return json(200, { name: session.name, presets: saved.presets || [] });
     }
     if (event.httpMethod === "POST") {
       const body = JSON.parse(event.body || "{}");
       const presets = cleanPresets(body.presets);
-      await store.setJSON(name, { presets });
-      return json(200, { name, presets });
+      await blobSet("server-presets", session.name, { presets });
+      return json(200, { name: session.name, presets });
     }
     return json(405, { message: "Use GET or POST" });
   } catch (err) {
