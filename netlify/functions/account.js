@@ -9,6 +9,13 @@ function json(statusCode, payload) {
   };
 }
 
+function openStore(name) {
+  const siteID = process.env.SITE_ID || process.env.NETLIFY_SITE_ID || "";
+  const token = process.env.BLOBS_TOKEN || process.env.NETLIFY_AUTH_TOKEN || "";
+  if (siteID && token) return getStore({ name, siteID, token });
+  return getStore(name);
+}
+
 function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 32).toString("hex");
 }
@@ -26,8 +33,8 @@ exports.handler = async function handler(event) {
     if (password.length < 6 || password.length > 80) {
       return json(400, { message: "Password must be at least 6 characters." });
     }
-    const accounts = getStore("accounts");
-    const sessions = getStore("sessions");
+    const accounts = openStore("accounts");
+    const sessions = openStore("sessions");
     const existing = await accounts.get(name, { type: "json" });
     if (action === "register") {
       if (existing) return json(409, { message: "That username is already taken." });

@@ -8,6 +8,13 @@ function json(statusCode, payload) {
   };
 }
 
+function openStore(name) {
+  const siteID = process.env.SITE_ID || process.env.NETLIFY_SITE_ID || "";
+  const token = process.env.BLOBS_TOKEN || process.env.NETLIFY_AUTH_TOKEN || "";
+  if (siteID && token) return getStore({ name, siteID, token });
+  return getStore(name);
+}
+
 function cleanPresets(value) {
   if (!Array.isArray(value)) return [];
   return value.slice(0, 12).map((item) => ({
@@ -23,10 +30,10 @@ exports.handler = async function handler(event) {
   try {
     const header = event.headers.authorization || event.headers.Authorization || "";
     const token = header.replace(/^Bearer\s+/i, "");
-    const sessions = getStore("sessions");
+    const sessions = openStore("sessions");
     const session = token ? await sessions.get(token, { type: "json" }) : null;
     if (!session || session.expires < Date.now()) return json(401, { message: "Sign in again." });
-    const presets = getStore("server-presets");
+    const presets = openStore("server-presets");
     if (event.httpMethod === "GET") {
       const saved = (await presets.get(session.name, { type: "json" })) || { presets: [] };
       return json(200, { name: session.name, presets: saved.presets || [] });
