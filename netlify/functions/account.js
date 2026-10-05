@@ -11,9 +11,14 @@ function json(statusCode, payload) {
 
 function openStore(name) {
   const siteID = process.env.BLOBS_SITE_ID || process.env.SITE_ID || "";
-  const token = process.env.BLOBS_TOKEN || process.env.NETLIFY_AUTH_TOKEN || "";
-  if (siteID && token) return getStore({ name, siteID, token });
-  return getStore(name);
+  const token = process.env.BLOBS_TOKEN || "";
+  if (!siteID || !token) {
+    const missing = [!siteID ? "BLOBS_SITE_ID" : "", !token ? "BLOBS_TOKEN" : ""].filter(Boolean).join(" and ");
+    const error = new Error(missing + " is missing. Leave Contains secret values unchecked, then redeploy.");
+    error.statusCode = 500;
+    throw error;
+  }
+  return getStore({ name, siteID, token });
 }
 
 function hashPassword(password, salt) {
