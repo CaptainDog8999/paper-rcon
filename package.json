@@ -2,6 +2,6 @@
   "name": "paper-rcon",
   "private": true,
   "dependencies": {
-    "@netlify/blobs": "^8.2.0"
+    "@netlify/blobs": "8.2.0"
   }
 }
