@@ -9,7 +9,7 @@ function json(statusCode, payload) {
 }
 
 function openStore(name) {
-  const siteID = process.env.SITE_ID || process.env.NETLIFY_SITE_ID || "";
+  const siteID = process.env.BLOBS_SITE_ID || process.env.SITE_ID || "";
   const token = process.env.BLOBS_TOKEN || process.env.NETLIFY_AUTH_TOKEN || "";
   if (siteID && token) return getStore({ name, siteID, token });
   return getStore(name);
