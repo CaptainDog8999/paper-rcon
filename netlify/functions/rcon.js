@@ -25,7 +25,7 @@ function packet(id, type, payload) {
 function readOne(socket, timeoutMs) {
   return new Promise((resolve, reject) => {
     let buf = Buffer.alloc(0);
-    const timer = setTimeout(() => finish(new Error("RCON timed out waiting for Paper")), null);
+    const timer = setTimeout(() => finish(new Error("Playit connected, but Paper sent no RCON reply. Use a TCP tunnel to 127.0.0.1 and the RCON port, turn proxy protocol off, and enter the public port Playit shows.")), null);
     function cleanup() {
       clearTimeout(timer);
       socket.off("data", onData);
@@ -62,7 +62,7 @@ function readOne(socket, timeoutMs) {
       finish(err);
     }
     function onEnd() {
-      finish(new Error("Paper closed RCON. Check the password and that enable-rcon=true."));
+      finish(new Error("Paper closed the RCON connection. Check the password, enable-rcon=true, and that the Playit local port is the RCON port."));
     }
     socket.on("data", onData);
     socket.on("error", onError);
